@@ -26,9 +26,7 @@
 
 /target/
 **/*.rs.bk
-debug/
-target/debug/
-target/release/
+/debug/
 
 ### Vscode ###
 # Visual Studio Code editor settings and workspace files
@@ -48,10 +46,11 @@ target/release/
 .vs/
 *.code-workspace
 .vscode-test
-.vscodeignore
 .vscode/chrome
 
 .vscode-server/
 .vscode/sftp.json
 .vscode/tags
-.devcontainer/
+
+Thumbs.db
+desktop.ini
