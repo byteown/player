@@ -62,10 +62,11 @@ pub fn get_track_info(path: &String) -> Result<TrackInfo, Error> {
 
     let channels = &track_audio_codec_params.channels;
 
-    let codec_text = get_codecs().get_audio_decoder(track_audio_codec_params.codec);
+    let registered_audio_decoder = get_codecs().get_audio_decoder(track_audio_codec_params.codec);
 
     let info = TrackInfo {
-        codec: codec_text.map(|audio_decoder| audio_decoder.codec.info.long_name.to_string()),
+        codec: registered_audio_decoder
+            .map(|audio_decoder| audio_decoder.codec.info.long_name.to_string()),
         sample_rate: track_audio_codec_params.sample_rate,
         channels: channels.as_ref().map(|ch| ch.count()),
         length_seconds: time.map(|tm| tm.as_secs_f64()),
