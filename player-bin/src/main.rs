@@ -5,7 +5,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).context("File path not provided")?;
 
-    let info = get_track_info(path)?;
+    let info = get_track_info(path.as_ref())?;
 
     println!("{:?}", info);
 

@@ -19,7 +19,13 @@ pub struct TrackInfo {
     pub length_seconds: Option<f64>,
 }
 
-pub fn get_format_reader(path: &String) -> Result<Box<dyn FormatReader>, Error> {
+pub struct DecodedTrack {
+    pub samples: Vec<f32>,
+    pub sample_rate: u32,
+    pub channels: usize,
+}
+
+fn get_format_reader(path: &Path) -> Result<Box<dyn FormatReader>, Error> {
     let meta_opts = MetadataOptions::default();
     let fmt_opts = FormatOptions::default();
 
@@ -39,7 +45,7 @@ pub fn get_format_reader(path: &String) -> Result<Box<dyn FormatReader>, Error> 
     Ok(probe)
 }
 
-pub fn get_track_info(path: &String) -> Result<TrackInfo, Error> {
+pub fn get_track_info(path: &Path) -> Result<TrackInfo, Error> {
     let reader = get_format_reader(path)?;
 
     let track = reader
@@ -70,6 +76,79 @@ pub fn get_track_info(path: &String) -> Result<TrackInfo, Error> {
         sample_rate: track_audio_codec_params.sample_rate,
         channels: channels.as_ref().map(|ch| ch.count()),
         length_seconds: time.map(|tm| tm.as_secs_f64()),
+    };
+
+    Ok(info)
+}
+
+pub fn decode_track(path: &Path) -> Result<DecodedTrack, Error> {
+    let mut reader = get_format_reader(path)?;
+
+    let track = reader
+        .default_track(TrackType::Audio)
+        .ok_or(Error::Unsupported("No audio track"))?;
+
+    let track_codec_params = track
+        .codec_params
+        .as_ref()
+        .ok_or(Error::Unsupported("Can't determine codec params"))?;
+
+    let track_audio_codec_params = track_codec_params
+        .audio()
+        .ok_or(Error::Unsupported("Params exist but not audio"))?;
+
+    let mut decoder =
+        get_codecs().make_audio_decoder(track_audio_codec_params, &Default::default())?;
+
+    let track_id = track.id;
+
+    let mut audio_buffer: Vec<f32> = vec![];
+    let mut temp_buffer: Vec<f32> = vec![];
+
+    let sample_rate_ok = track_audio_codec_params
+        .sample_rate
+        .ok_or(Error::Unsupported("Can't get sample rate"))?;
+    let channels_ok = track_audio_codec_params
+        .channels
+        .as_ref()
+        .ok_or(Error::Unsupported("Can't get channels"))?
+        .count();
+
+    loop {
+        let packet = reader.next_packet();
+
+        match packet {
+            Ok(Some(packet)) => {
+                if packet.track_id != track_id {
+                    continue;
+                }
+
+                let decoded_packet = decoder.decode(&packet);
+
+                match decoded_packet {
+                    Ok(pac) => {
+                        pac.copy_to_vec_interleaved(&mut temp_buffer);
+                    }
+                    Err(_) => {
+                        continue;
+                    }
+                }
+
+                audio_buffer.extend(&temp_buffer);
+            }
+            Ok(None) => {
+                break;
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    let info = DecodedTrack {
+        samples: audio_buffer,
+        sample_rate: sample_rate_ok,
+        channels: channels_ok,
     };
 
     Ok(info)
