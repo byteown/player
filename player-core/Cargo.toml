@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 symphonia = { version = "0.6.1", features = ["all-codecs", "all-meta", "isomp4"] }
+cpal = {version = "0.18.2"}
