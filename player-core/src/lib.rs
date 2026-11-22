@@ -19,7 +19,7 @@ pub struct TrackInfo {
     pub length_seconds: Option<f64>,
 }
 
-fn get_format_reader(path: &String) -> Result<Box<dyn FormatReader>, Error> {
+pub fn get_format_reader(path: &String) -> Result<Box<dyn FormatReader>, Error> {
     let meta_opts = MetadataOptions::default();
     let fmt_opts = FormatOptions::default();
 
