@@ -34,7 +34,7 @@ fn get_format_reader(path: &Path) -> Result<Box<dyn FormatReader>, Error> {
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
     let mut hint = Hint::new();
-    let extension: Option<&OsStr> = Path::new(path).extension();
+    let extension: Option<&OsStr> = path.extension();
     let extension_text: Option<&str> = extension.and_then(|e| e.to_str());
     if let Some(ext) = extension_text {
         hint.with_extension(ext);
@@ -145,11 +145,11 @@ pub fn decode_track(path: &Path) -> Result<DecodedTrack, Error> {
         }
     }
 
-    let info = DecodedTrack {
+    let decoded_track = DecodedTrack {
         samples: audio_buffer,
         sample_rate: sample_rate_ok,
         channels: channels_ok,
     };
 
-    Ok(info)
+    Ok(decoded_track)
 }
