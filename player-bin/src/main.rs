@@ -1,11 +1,13 @@
 use anyhow::{Context, Result};
-use player_core::get_track_result;
+use player_core::get_track_info;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).context("File path not provided")?;
 
-    let _result = get_track_result(path)?;
+    let info = get_track_info(path)?;
+
+    println!("{:?}", info);
 
     Ok(())
 }
