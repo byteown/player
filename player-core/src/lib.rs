@@ -1,6 +1,8 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
+use cpal::StreamConfig;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use symphonia::core::formats::TrackType;
 use symphonia::core::{
     formats::{FormatOptions, FormatReader, probe::Hint},
@@ -39,6 +41,21 @@ pub enum LibError {
 
     #[error("Packet error")]
     Packet(#[source] symphonia::core::errors::Error),
+
+    #[error("No output device available")]
+    NoOutputDevice,
+
+    #[error("Can't pick default output config")]
+    NoDefaultOutputConfig(#[source] cpal::Error),
+
+    #[error("Expected {expected} sample rate, got {got}")]
+    SampleRateDiff { expected: u32, got: u32 },
+
+    #[error("Expected {expected} channels, got {got}")]
+    ChannelsDiff { expected: usize, got: usize },
+
+    #[error("Stream error")]
+    Stream(#[source] cpal::Error),
 }
 
 #[derive(Debug)]
@@ -56,7 +73,7 @@ pub struct DecodedTrack {
 }
 
 pub struct Player {
-    stream: cpal::Stream,
+    _stream: cpal::Stream,
 }
 
 fn get_format_reader(path: &Path) -> Result<Box<dyn FormatReader>, LibError> {
@@ -181,4 +198,56 @@ pub fn decode_track(path: &Path) -> Result<DecodedTrack, LibError> {
     Ok(decoded_track)
 }
 
-pub fn start_playing(track: DecodedTrack) {}
+pub fn start_playing(track: DecodedTrack) -> Result<Player, LibError> {
+    let host = cpal::default_host();
+
+    let device = host
+        .default_output_device()
+        .ok_or(LibError::NoOutputDevice)?;
+
+    let supported_config = device
+        .default_output_config()
+        .map_err(LibError::NoDefaultOutputConfig)?;
+
+    let sample_rate = supported_config.sample_rate();
+    let channels = supported_config.channels() as usize;
+
+    if sample_rate != track.sample_rate {
+        return Err(LibError::SampleRateDiff {
+            expected: sample_rate,
+            got: track.sample_rate,
+        });
+    }
+
+    if channels != track.channels {
+        return Err(LibError::ChannelsDiff {
+            expected: channels,
+            got: track.channels,
+        });
+    }
+
+    let config: StreamConfig = supported_config.into();
+
+    let mut pos: usize = 0;
+
+    let stream = device
+        .build_output_stream(
+            config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                for n in data {
+                    *n = *track.samples.get(pos).unwrap_or(&0.0);
+
+                    pos += 1;
+                }
+            },
+            move |_| {
+                // TODO
+            },
+            None,
+        )
+        .map_err(LibError::Stream)?;
+
+    stream.play().map_err(LibError::Stream)?;
+
+    Ok(Player { _stream: stream })
+}
