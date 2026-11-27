@@ -24,8 +24,9 @@ pub struct Player {
 impl Drop for Player {
     fn drop(&mut self) {
         self.flag.store(false, Ordering::Relaxed);
-        let handle = self.handle.take().unwrap();
-        let _ = handle.join();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -67,6 +68,21 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let running = Arc::new(AtomicBool::new(true));
     let running_gen = Arc::clone(&running);
 
+    let stream = device
+        .build_output_stream(
+            config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                for sample in data {
+                    *sample = consumer.pop().unwrap_or(0.0);
+                }
+            },
+            move |_| {
+                // TODO
+            },
+            None,
+        )
+        .map_err(LibError::Stream)?;
+
     let generator_handle = thread::spawn(move || {
         loop {
             match decoder.next_part() {
@@ -93,26 +109,11 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
         }
     });
 
-    let stream = device
-        .build_output_stream(
-            config,
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                for sample in data {
-                    *sample = consumer.pop().unwrap_or(0.0);
-                }
-            },
-            move |_| {
-                // TODO
-            },
-            None,
-        )
-        .map_err(LibError::Stream)?;
-
     stream.play().map_err(LibError::Stream)?;
 
     Ok(Player {
         _stream: stream,
-        flag: Arc::new(AtomicBool::new(true)),
-        handle: None,
+        flag: running,
+        handle: Some(generator_handle),
     })
 }
