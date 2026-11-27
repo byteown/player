@@ -8,3 +8,4 @@ license.workspace = true
 symphonia = { version = "0.6.1", features = ["all-codecs", "all-meta", "isomp4"] }
 cpal = {version = "0.18.2"}
 thiserror = "2.0.21"
+rtrb = "0.4.1"
