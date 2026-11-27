@@ -19,6 +19,7 @@ use crate::{PartDecoder, error::LibError};
 pub struct Player {
     _stream: cpal::Stream,
     flag: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 impl Drop for Player {
@@ -27,6 +28,11 @@ impl Drop for Player {
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
+    }
+}
+impl Player {
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Relaxed)
     }
 }
 
@@ -68,12 +74,27 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let running = Arc::new(AtomicBool::new(true));
     let running_gen = Arc::clone(&running);
 
+    let running_stream = Arc::new(AtomicBool::new(true));
+    let running_stream_gen = Arc::clone(&running_stream);
+
+    let finished = Arc::new(AtomicBool::new(false));
+    let finished_gen = Arc::clone(&finished);
+
     let stream = device
         .build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 for sample in data {
-                    *sample = consumer.pop().unwrap_or(0.0);
+                    match consumer.pop() {
+                        Ok(value) => {
+                            *sample = value;
+                        }
+                        Err(_) => {
+                            if !running_stream.load(Ordering::Acquire) {
+                                finished_gen.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    }
                 }
             },
             move |_| {
@@ -105,7 +126,10 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
                         }
                     }
                 }
-                Ok(None) => return,
+                Ok(None) => {
+                    running_stream_gen.store(false, Ordering::Release);
+                    return;
+                }
                 Err(_) => return,
             }
         }
@@ -114,6 +138,7 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     Ok(Player {
         _stream: stream,
         flag: running,
+        finished,
         handle: Some(generator_handle),
     })
 }
