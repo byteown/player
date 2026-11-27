@@ -7,10 +7,8 @@ fn main() {
 
     let mut decoder = PartDecoder::open(path.as_ref()).unwrap();
 
-    loop {
-        while let Ok(sample) = decoder.next_part() {
-            counter += sample.unwrap().len();
-        }
+    while let Ok(sample) = decoder.next_part() {
+        counter += sample.unwrap().len();
     }
 
     println!("{counter}")
