@@ -11,9 +11,9 @@ fn main() -> Result<()> {
 
     println!("{:?}", info);
 
-    let _player = start_playing(path.as_ref())?;
+    let player = start_playing(path.as_ref())?;
 
-    while !_player.is_finished() {
+    while !player.is_finished() {
         std::thread::sleep(Duration::from_millis(100));
     }
 

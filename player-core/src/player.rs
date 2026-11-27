@@ -18,13 +18,13 @@ use crate::{PartDecoder, error::LibError};
 
 pub struct Player {
     _stream: cpal::Stream,
-    flag: Arc<AtomicBool>,
+    stop_flag: Arc<AtomicBool>,
     finished: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 impl Drop for Player {
     fn drop(&mut self) {
-        self.flag.store(false, Ordering::Relaxed);
+        self.stop_flag.store(false, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -74,8 +74,8 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let running = Arc::new(AtomicBool::new(true));
     let running_gen = Arc::clone(&running);
 
-    let running_stream = Arc::new(AtomicBool::new(true));
-    let running_stream_gen = Arc::clone(&running_stream);
+    let decoder_done = Arc::new(AtomicBool::new(false));
+    let decoder_done_callback = Arc::clone(&decoder_done);
 
     let finished = Arc::new(AtomicBool::new(false));
     let finished_gen = Arc::clone(&finished);
@@ -90,7 +90,9 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
                             *sample = value;
                         }
                         Err(_) => {
-                            if !running_stream.load(Ordering::Acquire) {
+                            *sample = 0.0;
+
+                            if decoder_done.load(Ordering::Acquire) {
                                 finished_gen.store(true, Ordering::Relaxed);
                             }
                         }
@@ -127,17 +129,20 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
                     }
                 }
                 Ok(None) => {
-                    running_stream_gen.store(false, Ordering::Release);
+                    decoder_done_callback.store(true, Ordering::Release);
                     return;
                 }
-                Err(_) => return,
+                Err(_) => {
+                    decoder_done_callback.store(true, Ordering::Release);
+                    return;
+                }
             }
         }
     });
 
     Ok(Player {
         _stream: stream,
-        flag: running,
+        stop_flag: running,
         finished,
         handle: Some(generator_handle),
     })
