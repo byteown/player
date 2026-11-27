@@ -14,11 +14,11 @@ fn main() -> Result<()> {
     let decoded_track = decode_track(path.as_ref())?;
 
     let track_seconds =
-        decoded_track.samples.len() / decoded_track.channels / decoded_track.sample_rate as usize;
+        (decoded_track.samples.len() / decoded_track.channels / (decoded_track.sample_rate as usize)) as f64;
 
     let _player = start_playing(decoded_track)?;
 
-    std::thread::sleep(Duration::from_secs_f64(track_seconds as f64));
+    std::thread::sleep(Duration::from_secs_f64(track_seconds));
 
     Ok(())
 }
