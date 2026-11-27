@@ -8,12 +8,8 @@ fn main() {
     let mut decoder = PartDecoder::open(path.as_ref()).unwrap();
 
     loop {
-        let status = decoder.next_part().unwrap();
-
-        if status == None {
-            break;
-        } else {
-            counter += status.unwrap().len();
+        while let Ok(sample) = decoder.next_part() {
+            counter += sample.unwrap().len();
         }
     }
 
