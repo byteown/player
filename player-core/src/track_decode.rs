@@ -2,6 +2,7 @@ use std::{ffi::OsStr, path::Path};
 
 use symphonia::{
     core::{
+        codecs::audio::AudioDecoder,
         formats::{FormatOptions, FormatReader, TrackType, probe::Hint},
         io::MediaSourceStream,
         meta::MetadataOptions,
@@ -15,6 +16,88 @@ pub struct DecodedTrack {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub channels: usize,
+}
+
+pub struct PartDecoder {
+    reader: Box<dyn FormatReader>,
+    decoder: Box<dyn AudioDecoder>,
+    track_id: u32,
+    sample_rate: u32,
+    channels: usize,
+    buf: Vec<f32>,
+}
+
+impl PartDecoder {
+    pub fn open(path: &Path) -> Result<Self, LibError> {
+        let reader = get_format_reader(path)?;
+
+        let track = reader
+            .default_track(TrackType::Audio)
+            .ok_or(LibError::NoAudioTrack)?;
+
+        let track_codec_params = track.codec_params.as_ref().ok_or(LibError::NoCodecParams)?;
+
+        let track_audio_codec_params = track_codec_params.audio().ok_or(LibError::NoAudio)?;
+
+        let decoder = get_codecs()
+            .make_audio_decoder(track_audio_codec_params, &Default::default())
+            .map_err(LibError::CreateAudioDecoder)?;
+
+        let track_id = track.id;
+
+        let sample_rate = track_audio_codec_params
+            .sample_rate
+            .ok_or(LibError::SampleRate)?;
+        let channels = track_audio_codec_params
+            .channels
+            .as_ref()
+            .ok_or(LibError::Channels)?
+            .count();
+
+        Ok(Self {
+            reader,
+            decoder,
+            track_id,
+            sample_rate,
+            channels,
+            buf: vec![],
+        })
+    }
+    pub fn next_part(&mut self) -> Result<Option<&[f32]>, LibError> {
+        loop {
+            let packet = self.reader.next_packet();
+
+            match packet {
+                Ok(Some(packet)) => {
+                    if packet.track_id != self.track_id {
+                        continue;
+                    }
+
+                    let decoded_packet = self.decoder.decode(&packet);
+
+                    match decoded_packet {
+                        Ok(pac) => {
+                            pac.copy_to_vec_interleaved(&mut self.buf);
+                            return Ok(Some(&self.buf));
+                        }
+                        Err(_) => {
+                            continue;
+                        }
+                    }
+                }
+                Ok(None) => return Ok(None),
+                Err(e) => {
+                    return Err(LibError::Packet(e));
+                }
+            }
+        }
+    }
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
 }
 
 pub(crate) fn get_format_reader(path: &Path) -> Result<Box<dyn FormatReader>, LibError> {
@@ -37,73 +120,4 @@ pub(crate) fn get_format_reader(path: &Path) -> Result<Box<dyn FormatReader>, Li
         .map_err(LibError::Probing)?;
 
     Ok(probe)
-}
-
-pub fn decode_track(path: &Path) -> Result<DecodedTrack, LibError> {
-    let mut reader = get_format_reader(path)?;
-
-    let track = reader
-        .default_track(TrackType::Audio)
-        .ok_or(LibError::NoAudioTrack)?;
-
-    let track_codec_params = track.codec_params.as_ref().ok_or(LibError::NoCodecParams)?;
-
-    let track_audio_codec_params = track_codec_params.audio().ok_or(LibError::NoAudio)?;
-
-    let mut decoder = get_codecs()
-        .make_audio_decoder(track_audio_codec_params, &Default::default())
-        .map_err(LibError::CreateAudioDecoder)?;
-
-    let track_id = track.id;
-
-    let mut audio_buffer: Vec<f32> = vec![];
-    let mut temp_buffer: Vec<f32> = vec![];
-
-    let sample_rate = track_audio_codec_params
-        .sample_rate
-        .ok_or(LibError::SampleRate)?;
-    let channels = track_audio_codec_params
-        .channels
-        .as_ref()
-        .ok_or(LibError::Channels)?
-        .count();
-
-    loop {
-        let packet = reader.next_packet();
-
-        match packet {
-            Ok(Some(packet)) => {
-                if packet.track_id != track_id {
-                    continue;
-                }
-
-                let decoded_packet = decoder.decode(&packet);
-
-                match decoded_packet {
-                    Ok(pac) => {
-                        pac.copy_to_vec_interleaved(&mut temp_buffer);
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
-
-                audio_buffer.extend(&temp_buffer);
-            }
-            Ok(None) => {
-                break;
-            }
-            Err(e) => {
-                return Err(LibError::Packet(e));
-            }
-        }
-    }
-
-    let decoded_track = DecodedTrack {
-        samples: audio_buffer,
-        sample_rate,
-        channels,
-    };
-
-    Ok(decoded_track)
 }

@@ -85,7 +85,9 @@ fn main() {
                 let available = consumer.slots();
                 let to_read = available.min(data.len());
 
-                if to_read > 0 && let Ok(chunk) = consumer.read_chunk(to_read) {
+                if to_read > 0
+                    && let Ok(chunk) = consumer.read_chunk(to_read)
+                {
                     let (first, second) = chunk.as_slices();
                     data[..first.len()].copy_from_slice(first);
                     data[first.len()..to_read].copy_from_slice(second);

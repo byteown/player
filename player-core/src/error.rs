@@ -43,4 +43,7 @@ pub enum LibError {
 
     #[error("Stream error")]
     Stream(#[source] cpal::Error),
+
+    #[error("No part available")]
+    NoPart,
 }

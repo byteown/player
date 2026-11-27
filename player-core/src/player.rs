@@ -1,15 +1,35 @@
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
+};
+
 use cpal::{
     StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
+use rtrb::RingBuffer;
 
-use crate::{error::LibError, track_decode::DecodedTrack};
+use crate::{PartDecoder, error::LibError};
 
 pub struct Player {
     _stream: cpal::Stream,
+    flag: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+impl Drop for Player {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Relaxed);
+        let handle = self.handle.take().unwrap();
+        let _ = handle.join();
+    }
 }
 
-pub fn start_playing(track: DecodedTrack) -> Result<Player, LibError> {
+pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let host = cpal::default_host();
 
     let device = host
@@ -23,32 +43,62 @@ pub fn start_playing(track: DecodedTrack) -> Result<Player, LibError> {
     let sample_rate = supported_config.sample_rate();
     let channels = supported_config.channels() as usize;
 
-    if sample_rate != track.sample_rate {
+    let mut decoder = PartDecoder::open(path)?;
+
+    if sample_rate != decoder.sample_rate() {
         return Err(LibError::SampleRateDiff {
             expected: sample_rate,
-            got: track.sample_rate,
+            got: decoder.sample_rate(),
         });
     }
 
-    if channels != track.channels {
+    if channels != decoder.channels() {
         return Err(LibError::ChannelsDiff {
             expected: channels,
-            got: track.channels,
+            got: decoder.channels(),
         });
     }
 
     let config: StreamConfig = supported_config.into();
 
-    let mut pos: usize = 0;
+    let capacity = decoder.sample_rate() * decoder.channels() as u32 / 2;
+    let (mut producer, mut consumer) = RingBuffer::<f32>::new(capacity as usize);
+
+    let running = Arc::new(AtomicBool::new(true));
+    let running_gen = Arc::clone(&running);
+
+    let generator_handle = thread::spawn(move || {
+        loop {
+            match decoder.next_part() {
+                Ok(Some(part)) => {
+                    for &sample in part {
+                        loop {
+                            let result = producer.push(sample);
+
+                            if result.is_ok() {
+                                break;
+                            }
+
+                            if running_gen.load(Ordering::Relaxed) {
+                                thread::park_timeout(Duration::from_millis(2));
+                            } else {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Ok(None) => return,
+                Err(_) => return,
+            }
+        }
+    });
 
     let stream = device
         .build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                for n in data {
-                    *n = *track.samples.get(pos).unwrap_or(&0.0);
-
-                    pos += 1;
+                for sample in data {
+                    *sample = consumer.pop().unwrap_or(0.0);
                 }
             },
             move |_| {
@@ -60,5 +110,9 @@ pub fn start_playing(track: DecodedTrack) -> Result<Player, LibError> {
 
     stream.play().map_err(LibError::Stream)?;
 
-    Ok(Player { _stream: stream })
+    Ok(Player {
+        _stream: stream,
+        flag: Arc::new(AtomicBool::new(true)),
+        handle: None,
+    })
 }
