@@ -13,7 +13,10 @@ fn main() -> Result<()> {
 
     let _player = start_playing(path.as_ref())?;
 
-    std::thread::sleep(Duration::from_secs_f64(info.length_seconds.context("Can't get track info length seconds")?));
+    std::thread::sleep(Duration::from_secs_f64(
+        info.length_seconds
+            .context("Can't get track info length seconds")?,
+    ));
 
     Ok(())
 }
