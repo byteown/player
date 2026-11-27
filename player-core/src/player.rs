@@ -83,6 +83,8 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
         )
         .map_err(LibError::Stream)?;
 
+    stream.play().map_err(LibError::Stream)?;
+
     let generator_handle = thread::spawn(move || {
         loop {
             match decoder.next_part() {
@@ -108,8 +110,6 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
             }
         }
     });
-
-    stream.play().map_err(LibError::Stream)?;
 
     Ok(Player {
         _stream: stream,
