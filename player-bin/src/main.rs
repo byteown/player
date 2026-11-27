@@ -13,8 +13,9 @@ fn main() -> Result<()> {
 
     let decoded_track = decode_track(path.as_ref())?;
 
-    let track_seconds =
-        decoded_track.samples.len() as f64 / decoded_track.channels as f64 / decoded_track.sample_rate as f64;
+    let track_seconds = decoded_track.samples.len() as f64
+        / decoded_track.channels as f64
+        / decoded_track.sample_rate as f64;
 
     let _player = start_playing(decoded_track)?;
 
