@@ -23,7 +23,7 @@ pub struct Player {
     finished: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     volume: Arc<AtomicU32>,
-    sender: Sender<DecoderCommands>,
+    sender: Sender<DecoderCommand>,
     handle: Option<JoinHandle<()>>,
 }
 impl Drop for Player {
@@ -56,12 +56,12 @@ impl Player {
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
     pub fn seek(&self, value: std::time::Duration) {
-        let _ = self.sender.send(DecoderCommands::SeekTo(value));
+        let _ = self.sender.send(DecoderCommand::Seek(value));
     }
 }
 
-enum DecoderCommands {
-    SeekTo(std::time::Duration),
+enum DecoderCommand {
+    Seek(std::time::Duration),
 }
 
 pub fn start_playing(path: &Path) -> Result<Player, LibError> {
@@ -149,13 +149,23 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
 
     stream.play().map_err(LibError::Stream)?;
 
-    let (sender, receiver) = mpsc::channel::<DecoderCommands>();
+    let (sender, receiver) = mpsc::channel::<DecoderCommand>();
 
     let generator_handle = thread::spawn(move || {
-        loop {
+        let mut delayed_cmd: Option<DecoderCommand> = None;
+
+        'next: loop {
+            if let Some(cmd) = delayed_cmd.take() {
+                match cmd {
+                    DecoderCommand::Seek(duration) => {
+                        let _ = decoder.seek(duration);
+                    }
+                }
+            }
+
             while let Ok(msg) = receiver.try_recv() {
                 match msg {
-                    DecoderCommands::SeekTo(duration) => {
+                    DecoderCommand::Seek(duration) => {
                         let _ = decoder.seek(duration);
                     }
                 }
@@ -169,6 +179,11 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
 
                             if result.is_ok() {
                                 break;
+                            }
+
+                            if let Ok(msg) = receiver.try_recv() {
+                                delayed_cmd = Some(msg);
+                                continue 'next;
                             }
 
                             if running_gen.load(Ordering::Relaxed) {
