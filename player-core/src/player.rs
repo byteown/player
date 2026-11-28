@@ -2,7 +2,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -18,13 +18,15 @@ use crate::{PartDecoder, error::LibError};
 
 pub struct Player {
     _stream: cpal::Stream,
-    stop_flag: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
     finished: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    volume: Arc<AtomicU32>,
     handle: Option<JoinHandle<()>>,
 }
 impl Drop for Player {
     fn drop(&mut self) {
-        self.stop_flag.store(false, Ordering::Relaxed);
+        self.running.store(false, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -33,6 +35,23 @@ impl Drop for Player {
 impl Player {
     pub fn is_finished(&self) -> bool {
         self.finished.load(Ordering::Relaxed)
+    }
+    pub fn volume(&self) -> f32 {
+        f32::from_bits(self.volume.load(Ordering::Relaxed))
+    }
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
+    }
+    pub fn toggle_pause(&self) {
+        self.paused.fetch_xor(true, Ordering::Relaxed);
+    }
+    pub fn set_volume(&self, volume: f32) {
+        if volume.is_nan() {
+            return;
+        }
+
+        self.volume
+            .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -78,22 +97,35 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let decoder_done_callback = Arc::clone(&decoder_done);
 
     let finished = Arc::new(AtomicBool::new(false));
-    let finished_gen = Arc::clone(&finished);
+    let finished_callback = Arc::clone(&finished);
+
+    let paused = Arc::new(AtomicBool::new(false));
+    let paused_callback = Arc::clone(&paused);
+
+    let volume = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+    let volume_callback = Arc::clone(&volume);
 
     let stream = device
         .build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let volume_value = f32::from_bits(volume_callback.load(Ordering::Relaxed));
+
+                if paused_callback.load(Ordering::Relaxed) {
+                    data.fill(0.0);
+                    return;
+                }
+
                 for sample in data {
                     match consumer.pop() {
                         Ok(value) => {
-                            *sample = value;
+                            *sample = value * volume_value;
                         }
                         Err(_) => {
                             *sample = 0.0;
 
                             if decoder_done.load(Ordering::Acquire) {
-                                finished_gen.store(true, Ordering::Relaxed);
+                                finished_callback.store(true, Ordering::Relaxed);
                             }
                         }
                     }
@@ -142,8 +174,10 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
 
     Ok(Player {
         _stream: stream,
-        stop_flag: running,
+        running,
         finished,
+        paused,
+        volume,
         handle: Some(generator_handle),
     })
 }
