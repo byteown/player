@@ -114,11 +114,22 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
     let volume = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
     let volume_callback = Arc::clone(&volume);
 
+    let clear_buf = Arc::new(AtomicBool::new(false));
+    let clear_buf_gen = Arc::clone(&clear_buf);
+    let clear_buf_callback = Arc::clone(&clear_buf);
+
     let stream = device
         .build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let volume_value = f32::from_bits(volume_callback.load(Ordering::Relaxed));
+
+                if clear_buf_callback.load(Ordering::Acquire) {
+                    if let Ok(n) = consumer.read_chunk(consumer.slots()) {
+                        n.commit_all();
+                    }
+                    clear_buf_callback.store(false, Ordering::Release);
+                }
 
                 if paused_callback.load(Ordering::Relaxed) {
                     data.fill(0.0);
@@ -158,14 +169,14 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
             if let Some(cmd) = delayed_cmd.take() {
                 match cmd {
                     DecoderCommand::Seek(duration) => {
-                        let _ = decoder.seek(duration);
-                    }
-                }
-            }
+                        clear_buf_gen.store(true, Ordering::Release);
+                        while clear_buf_gen.load(Ordering::Acquire) {
+                            thread::park_timeout(Duration::from_millis(2));
 
-            while let Ok(msg) = receiver.try_recv() {
-                match msg {
-                    DecoderCommand::Seek(duration) => {
+                            if !running_gen.load(Ordering::Relaxed) {
+                                return;
+                            }
+                        }
                         let _ = decoder.seek(duration);
                     }
                 }
