@@ -13,6 +13,8 @@ enum KeyboardCommand {
     Louder,
     Quieter,
     Exit,
+    SeekTo,
+    SeekReset,
 }
 
 enum KeyboardStatus {
@@ -61,6 +63,8 @@ fn main() -> Result<()> {
     println!("Pause: P");
     println!("Volume up: W");
     println!("Volume down: S");
+    println!("Seek to 1:00: J");
+    println!("Seek to 0:00: R");
     println!("Exit: Q");
 
     let player = start_playing(path.as_ref())?;
@@ -90,6 +94,12 @@ fn main() -> Result<()> {
                     println!("Stopping");
                     break;
                 }
+                KeyboardCommand::SeekTo => {
+                    player.seek(Duration::from_secs(60));
+                }
+                KeyboardCommand::SeekReset => {
+                    player.seek(Duration::from_secs(0));
+                }
             },
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
@@ -113,6 +123,9 @@ fn check_keyboard_command(input: String) -> Option<KeyboardCommand> {
         "S" => Some(KeyboardCommand::Quieter),
         "P" => Some(KeyboardCommand::Pause),
         "Q" => Some(KeyboardCommand::Exit),
+        "J" => Some(KeyboardCommand::SeekTo),
+        "R" => Some(KeyboardCommand::SeekReset),
+
         _ => None,
     }
 }

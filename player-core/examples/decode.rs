@@ -9,7 +9,7 @@ fn main() {
 
     let mut decoder = PartDecoder::open(path.as_ref()).unwrap();
 
-    decoder.seek(Duration::from_millis(156)).unwrap();
+    decoder.seek(Duration::from_secs(156)).unwrap();
 
     while let Ok(Some(part)) = decoder.next_part() {
         counter += part.len();

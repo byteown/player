@@ -3,6 +3,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc::{self, Sender},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -22,6 +23,7 @@ pub struct Player {
     finished: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     volume: Arc<AtomicU32>,
+    sender: Sender<DecoderCommands>,
     handle: Option<JoinHandle<()>>,
 }
 impl Drop for Player {
@@ -53,6 +55,13 @@ impl Player {
         self.volume
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
+    pub fn seek(&self, value: std::time::Duration) {
+        let _ = self.sender.send(DecoderCommands::SeekTo(value));
+    }
+}
+
+enum DecoderCommands {
+    SeekTo(std::time::Duration),
 }
 
 pub fn start_playing(path: &Path) -> Result<Player, LibError> {
@@ -140,8 +149,18 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
 
     stream.play().map_err(LibError::Stream)?;
 
+    let (sender, receiver) = mpsc::channel::<DecoderCommands>();
+
     let generator_handle = thread::spawn(move || {
         loop {
+            while let Ok(msg) = receiver.try_recv() {
+                match msg {
+                    DecoderCommands::SeekTo(duration) => {
+                        let _ = decoder.seek(duration);
+                    }
+                }
+            }
+
             match decoder.next_part() {
                 Ok(Some(part)) => {
                     for &sample in part {
@@ -178,6 +197,7 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
         finished,
         paused,
         volume,
+        sender,
         handle: Some(generator_handle),
     })
 }
