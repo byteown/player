@@ -3,9 +3,7 @@ use std::{ffi::OsStr, path::Path};
 use symphonia::{
     core::{
         codecs::audio::AudioDecoder,
-        formats::{
-            FormatOptions, FormatReader, SeekMode, SeekTo, SeekedTo, TrackType, probe::Hint,
-        },
+        formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType, probe::Hint},
         io::MediaSourceStream,
         meta::MetadataOptions,
         units::Time,
@@ -101,10 +99,10 @@ impl PartDecoder {
     pub fn channels(&self) -> usize {
         self.channels
     }
-    pub fn seek(&mut self, value: std::time::Duration) -> Result<SeekedTo, LibError> {
+    pub fn seek(&mut self, value: std::time::Duration) -> Result<(), LibError> {
         let seconds = Time::from_millis(value.as_millis() as i64 * 1000);
 
-        let result = self
+        let _result = self
             .reader
             .seek(
                 SeekMode::Coarse,
@@ -117,7 +115,7 @@ impl PartDecoder {
 
         self.decoder.reset();
 
-        Ok(result)
+        Ok(())
     }
 }
 
