@@ -100,7 +100,7 @@ impl PartDecoder {
         self.channels
     }
     pub fn seek(&mut self, value: std::time::Duration) -> Result<(), LibError> {
-        let seconds = Time::from_millis(value.as_millis() as i64 * 1000);
+        let seconds = Time::from_millis(value.as_millis() as i64);
 
         let _result = self
             .reader
