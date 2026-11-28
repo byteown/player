@@ -166,6 +166,10 @@ pub fn start_playing(path: &Path) -> Result<Player, LibError> {
         let mut delayed_cmd: Option<DecoderCommand> = None;
 
         'next: loop {
+            if let Ok(msg) = receiver.try_recv() {
+                delayed_cmd = Some(msg);
+            }
+
             if let Some(cmd) = delayed_cmd.take() {
                 match cmd {
                     DecoderCommand::Seek(duration) => {
