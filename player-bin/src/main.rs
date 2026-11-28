@@ -1,5 +1,5 @@
 use std::{
-    io,
+    io::{self, Error},
     sync::mpsc::{self, RecvTimeoutError},
     thread,
     time::Duration,
@@ -15,18 +15,39 @@ enum KeyboardCommand {
     Exit,
 }
 
+enum KeyboardStatus {
+    Empty,
+    Error,
+    Cmd,
+}
+
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
         loop {
-            let result = check_keyboard_command();
+            let mut input = String::new();
+            let result = io::stdin().read_line(&mut input);
 
-            match result {
-                Some(_) => {
-                    let _ = tx.send(result);
+            let status = check_keyboard_status(result);
+
+            match status {
+                KeyboardStatus::Empty => break,
+                KeyboardStatus::Error => break,
+                KeyboardStatus::Cmd => {}
+            }
+
+            let cmd = check_keyboard_command(input);
+
+            match cmd {
+                Some(t) => {
+                    let res = tx.send(t);
+                    match res {
+                        Ok(_) => continue,
+                        Err(_) => break,
+                    }
                 }
-                None => break,
+                None => continue,
             }
         }
     });
@@ -47,7 +68,7 @@ fn main() -> Result<()> {
     while !player.is_finished() {
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(cmd) => match cmd {
-                Some(KeyboardCommand::Pause) => {
+                KeyboardCommand::Pause => {
                     player.toggle_pause();
                     if player.is_paused() {
                         println!("Paused");
@@ -55,21 +76,20 @@ fn main() -> Result<()> {
                         println!("Unpaused");
                     }
                 }
-                Some(KeyboardCommand::Louder) => {
+                KeyboardCommand::Louder => {
                     let volume = player.volume();
                     player.set_volume(volume + 0.1);
-                    println!("Volume: {}", player.volume());
+                    println!("Volume: {:.1}", player.volume());
                 }
-                Some(KeyboardCommand::Quieter) => {
+                KeyboardCommand::Quieter => {
                     let volume = player.volume();
                     player.set_volume(volume - 0.1);
-                    println!("Volume: {}", player.volume());
+                    println!("Volume: {:.1}", player.volume());
                 }
-                Some(KeyboardCommand::Exit) => {
+                KeyboardCommand::Exit => {
                     println!("Stopping");
                     break;
                 }
-                None => {}
             },
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
@@ -79,14 +99,19 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn check_keyboard_command() -> Option<KeyboardCommand> {
-    let mut input = String::new();
-    let _ = io::stdin().read_line(&mut input);
+fn check_keyboard_status(result: Result<usize, Error>) -> KeyboardStatus {
+    match result {
+        Ok(0) => KeyboardStatus::Empty,
+        Err(_) => KeyboardStatus::Error,
+        Ok(_) => KeyboardStatus::Cmd,
+    }
+}
 
-    match input.to_uppercase().as_str().trim() {
-        "P" => Some(KeyboardCommand::Pause),
+fn check_keyboard_command(input: String) -> Option<KeyboardCommand> {
+    match input.trim().to_uppercase().as_str() {
         "W" => Some(KeyboardCommand::Louder),
         "S" => Some(KeyboardCommand::Quieter),
+        "P" => Some(KeyboardCommand::Pause),
         "Q" => Some(KeyboardCommand::Exit),
         _ => None,
     }
