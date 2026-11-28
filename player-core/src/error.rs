@@ -46,4 +46,7 @@ pub enum LibError {
 
     #[error("No part available")]
     NoPart,
+
+    #[error("Can't seek")]
+    Seek(#[source] symphonia::core::errors::Error),
 }

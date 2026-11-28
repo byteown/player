@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use player_core::PartDecoder;
 
 fn main() {
@@ -6,6 +8,8 @@ fn main() {
     let mut counter = 0;
 
     let mut decoder = PartDecoder::open(path.as_ref()).unwrap();
+
+    decoder.seek(Duration::from_millis(156)).unwrap();
 
     while let Ok(Some(part)) = decoder.next_part() {
         counter += part.len();
